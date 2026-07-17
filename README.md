@@ -13,13 +13,21 @@ It does not ask you to restructure your app. It bundles exactly what pip install
 
 ## Status
 
-Early development. The command line skeleton and build pipeline are in place. The
-self-extracting launcher, the CPython runtime acquisition, the bundle generator,
-and the native library auto-detection are being built in order.
+Working. gopack bundles a Python app, a CPython runtime, and its dependencies
+into a single executable that runs with no system Python. It has been validated
+by bundling NumPy, Pandas, and FastAPI into runnable binaries.
 
 ## Install
 
-While pre-release, build from source:
+The easiest way is the Python launcher, which downloads the native binary for
+your platform on first use:
+
+```
+pip install gopack-client
+gopack version
+```
+
+Or build from source with Go 1.22 or newer:
 
 ```
 git clone https://github.com/Go-Python-Toolchain/gopack
@@ -28,7 +36,30 @@ go build -o gopack .
 ./gopack version
 ```
 
-Requires Go 1.22 or newer.
+## Use
+
+```
+gopack build ./myapp -r ./myapp/requirements.txt -o myapp
+./myapp
+```
+
+gopack acquires a CPython runtime, installs the requirements, and writes a single
+executable. The entry script defaults to `main.py`; use `--entry` and `--python`
+to change the entry point or target version.
+
+In GitHub Actions, install gopack with the bundled action:
+
+```yaml
+- uses: Go-Python-Toolchain/gopack/.github/actions/setup-gopack@v0.1.0
+- run: gopack build ./app -r ./app/requirements.txt -o app
+```
+
+## Documentation
+
+- [Getting started](docs/getting-started.md): install gopack and bundle your first app.
+- [Tutorial](docs/tutorial.md): bundle a small app step by step and run it anywhere.
+- [Validation](docs/validation.md): how bundling is checked, including NumPy, Pandas, and FastAPI.
+- [examples/](examples/basic): a small app you can bundle right away.
 
 ## Design
 

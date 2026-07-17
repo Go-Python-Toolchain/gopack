@@ -1,0 +1,32 @@
+name: Setup gopack
+description: Install the gopack deployment bundler and add it to the PATH.
+
+inputs:
+  version:
+    description: The gopack version to install, without a leading v.
+    required: false
+    default: "0.1.0"
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        version="${{ inputs.version }}"
+        os=$(uname -s | tr '[:upper:]' '[:lower:]')
+        arch=$(uname -m)
+        case "$arch" in
+          x86_64|amd64) arch=amd64 ;;
+          arm64|aarch64) arch=arm64 ;;
+          *) echo "unsupported architecture: $arch" >&2; exit 1 ;;
+        esac
+        base="https://github.com/Go-Python-Toolchain/gopack/releases/download/v${version}"
+        archive="gopack_${version}_${os}_${arch}.tar.gz"
+        dest="$HOME/.gopack/bin"
+        mkdir -p "$dest"
+        curl -fsSL "$base/$archive" -o /tmp/gopack.tar.gz
+        tar -xzf /tmp/gopack.tar.gz -C "$dest" gopack
+        chmod +x "$dest/gopack"
+        echo "$dest" >> "$GITHUB_PATH"
+        echo "installed gopack $version to $dest"
