@@ -47,6 +47,10 @@ func Assemble(launcher []byte, manifest *bundle.Manifest, stagingDir, runtimeDir
 	if err := addTree(zw, filepath.Join(stagingDir, "site-packages"), "site-packages"); err != nil {
 		return err
 	}
+	// Embedded external libraries, if any were detected and copied in.
+	if err := addTree(zw, filepath.Join(stagingDir, "libs"), "libs"); err != nil {
+		return err
+	}
 	if err := addTree(zw, filepath.Join(runtimeDir, "python"), "python"); err != nil {
 		return err
 	}
