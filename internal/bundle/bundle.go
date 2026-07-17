@@ -32,19 +32,23 @@ type Manifest struct {
 	Env   map[string]string `json:"env,omitempty"`
 }
 
+// MakeTrailer builds the fixed trailer that records where the payload begins and
+// how long it is.
+func MakeTrailer(offset, length uint64) []byte {
+	tr := make([]byte, trailerSize)
+	copy(tr[0:8], magic)
+	binary.BigEndian.PutUint64(tr[8:16], offset)
+	binary.BigEndian.PutUint64(tr[16:24], length)
+	return tr
+}
+
 // Append concatenates a launcher, a payload, and a trailer into a single
 // executable image.
 func Append(launcher, payload []byte) []byte {
 	out := make([]byte, 0, len(launcher)+len(payload)+trailerSize)
 	out = append(out, launcher...)
-	offset := uint64(len(launcher))
 	out = append(out, payload...)
-
-	var tr [trailerSize]byte
-	copy(tr[0:8], magic)
-	binary.BigEndian.PutUint64(tr[8:16], offset)
-	binary.BigEndian.PutUint64(tr[16:24], uint64(len(payload)))
-	out = append(out, tr[:]...)
+	out = append(out, MakeTrailer(uint64(len(launcher)), uint64(len(payload)))...)
 	return out
 }
 
