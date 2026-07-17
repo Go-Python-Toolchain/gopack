@@ -54,11 +54,14 @@ and `--python` to target a specific Python version.
 
 ## How it works
 
-The finished executable is a small launcher with a compressed payload appended to
-it. The payload holds the CPython runtime, your application, and its installed
-dependencies. The first time you run the executable it extracts the payload to a
-cache keyed by content, then runs the bundled interpreter on your entry script.
-Later runs reuse the cache.
+The gopack binary is its own launcher. A bundle is a copy of gopack with a
+compressed payload appended to it, so there is no separate launcher program: the
+same tool that builds a bundle is the one that runs it. The payload holds the
+CPython runtime, your application, and its installed dependencies. gopack runs as
+the command line tool when it has no payload, and as the launcher when it does.
+The first time you run a bundle it extracts the payload to a cache keyed by
+content, then runs the bundled interpreter on your entry script. Later runs reuse
+the cache.
 
 C extensions sometimes load native libraries that are not part of the standard
 system. gopack detects those and embeds them, so the bundle stays self-contained.

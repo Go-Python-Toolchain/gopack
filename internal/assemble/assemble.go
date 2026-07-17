@@ -1,8 +1,10 @@
 // Package assemble writes the finished bundle: it packs the run manifest, the
 // staged application and its dependencies, and the CPython runtime into a zip,
-// appends that zip to the target launcher, and writes the result as a single
-// executable. The zip is streamed straight to the output file so large bundles
-// do not have to be held in memory.
+// appends that zip to a copy of the gopack binary, and writes the result as a
+// single executable. gopack acts as the launcher when it carries a payload, so
+// the finished bundle is just gopack plus the appended payload; there is no
+// separate launcher program. The zip is streamed straight to the output file so
+// large bundles do not have to be held in memory.
 package assemble
 
 import (
@@ -16,18 +18,19 @@ import (
 	"github.com/Go-Python-Toolchain/gopack/internal/bundle"
 )
 
-// Assemble writes a finished bundle to outPath. launcher is the launcher binary
-// for the target platform, manifest is the run manifest, stagingDir holds the
-// app and site-packages trees, and runtimeDir holds the extracted CPython (its
-// python subdirectory becomes the bundle's python directory).
-func Assemble(launcher []byte, manifest *bundle.Manifest, stagingDir, runtimeDir, outPath string) error {
+// Assemble writes a finished bundle to outPath. runner is the gopack binary for
+// the target platform, which becomes the launcher once the payload is appended.
+// manifest is the run manifest, stagingDir holds the app and site-packages
+// trees, and runtimeDir holds the extracted CPython (its python subdirectory
+// becomes the bundle's python directory).
+func Assemble(runner []byte, manifest *bundle.Manifest, stagingDir, runtimeDir, outPath string) error {
 	out, err := os.OpenFile(outPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
 	if err != nil {
 		return err
 	}
 	defer out.Close()
 
-	if _, err := out.Write(launcher); err != nil {
+	if _, err := out.Write(runner); err != nil {
 		return err
 	}
 
@@ -58,7 +61,7 @@ func Assemble(launcher []byte, manifest *bundle.Manifest, stagingDir, runtimeDir
 		return err
 	}
 
-	trailer := bundle.MakeTrailer(uint64(len(launcher)), uint64(counter.n))
+	trailer := bundle.MakeTrailer(uint64(len(runner)), uint64(counter.n))
 	if _, err := out.Write(trailer); err != nil {
 		return err
 	}

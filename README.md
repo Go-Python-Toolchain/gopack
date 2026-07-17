@@ -58,12 +58,13 @@ In GitHub Actions, install gopack with the bundled action:
 
 - [Getting started](docs/getting-started.md): install gopack and bundle your first app.
 - [Tutorial](docs/tutorial.md): bundle a small app step by step and run it anywhere.
+- [Architecture](docs/architecture.md): how a bundle is built and why gopack is its own launcher.
 - [Validation](docs/validation.md): how bundling is checked, including NumPy, Pandas, and FastAPI.
 - [examples/](examples/basic): a small app you can bundle right away.
 
 ## Design
 
-- A self-extracting executable: the payload is appended to a small Go launcher.
+- A self-extracting executable: gopack is its own launcher, so a bundle is a copy of gopack with a compressed payload appended. There is no separate launcher program.
 - A relocatable CPython runtime, so the target needs no system Python.
 - Dependencies installed with pip, so packages are exactly what pip would give you.
 - Automatic detection of external native libraries pulled in by C extensions.

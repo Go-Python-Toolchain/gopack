@@ -54,13 +54,14 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	py := targetPython(buildOpts.python)
 	goos, goarch := runtime.GOOS, runtime.GOARCH
 
-	// The stub is a copy of the running gopack binary, which acts as the launcher
-	// once a payload is appended.
+	// A bundle is the gopack binary itself with a payload appended: gopack runs as
+	// the command line tool when it has no payload, and as the launcher when it
+	// does. So the finished bundle is built from a copy of the running gopack.
 	self, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	stub, err := os.ReadFile(self)
+	runner, err := os.ReadFile(self)
 	if err != nil {
 		return err
 	}
@@ -109,7 +110,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Fprintln(out, "assembling")
-	if err := assemble.Assemble(stub, manifest, staging, rt.Dir, output); err != nil {
+	if err := assemble.Assemble(runner, manifest, staging, rt.Dir, output); err != nil {
 		return err
 	}
 

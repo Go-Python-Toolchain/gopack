@@ -112,12 +112,12 @@ func TestLauncherEndToEnd(t *testing.T) {
 		t.Skip("the end to end test uses a shell script")
 	}
 
-	// Build the launcher for this platform.
+	// Build the gopack binary, which is its own launcher.
 	launcherPath := filepath.Join(t.TempDir(), "launcher")
-	build := exec.Command("go", "build", "-o", launcherPath, "github.com/Go-Python-Toolchain/gopack/launcher")
+	build := exec.Command("go", "build", "-o", launcherPath, "github.com/Go-Python-Toolchain/gopack")
 	build.Env = append(os.Environ(), "GOTOOLCHAIN=local")
 	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("building launcher failed: %v\n%s", err, out)
+		t.Fatalf("building gopack failed: %v\n%s", err, out)
 	}
 	launcherBytes, err := os.ReadFile(launcherPath)
 	if err != nil {
