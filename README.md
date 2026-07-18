@@ -59,8 +59,22 @@ In GitHub Actions, install gopack with the bundled action:
 - [Getting started](docs/getting-started.md): install gopack and bundle your first app.
 - [Tutorial](docs/tutorial.md): bundle a small app step by step and run it anywhere.
 - [Architecture](docs/architecture.md): how a bundle is built and why gopack is its own launcher.
+- [Protocol](docs/protocol.md): the exact on-disk format of a bundle and the launch sequence.
+- [Benchmarks](docs/benchmarks.md): build time, bundle size, and startup, next to PyInstaller.
 - [Validation](docs/validation.md): how bundling is checked, including NumPy, Pandas, and FastAPI.
-- [examples/](examples/basic): a small app you can bundle right away.
+- [Limitations](docs/limitations.md): what gopack does not do yet, and the trade-offs.
+- [Roadmap](docs/roadmap.md): where gopack is headed.
+
+## Examples
+
+Real, multi-file applications you can bundle and run, each with its own README:
+
+- [basic](examples/basic): a minimal quickstart app.
+- [ml-iris](examples/ml-iris): a scikit-learn training and prediction pipeline.
+- [fastapi-service](examples/fastapi-service): a FastAPI service with Jinja templates and static files.
+- [django-notes](examples/django-notes): a full Django project with the admin site, migrations, and management commands.
+- [data-report](examples/data-report): a pandas and NumPy data pipeline.
+- [benchmark](examples/benchmark): the harness that measures all of the above and compares against PyInstaller.
 
 ## Design
 

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block title %}Items ({{ items | length }}){% endblock %}
+
+{% block content %}
+  <p class="summary">{{ items | length }} items, total {{ "%.2f" | format(total) }}.</p>
+  <ul class="items">
+    {% for item in items %}
+      <li class="item">
+        <span class="name">{{ item.name }}</span>
+        <span class="price">{{ "%.2f" | format(item.price) }}</span>
+      </li>
+    {% else %}
+      <li class="empty">No items yet.</li>
+    {% endfor %}
+  </ul>
+  <p class="hint">The same data is available as JSON at <code>/api/items</code>.</p>
+{% endblock %}

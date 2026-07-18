@@ -68,7 +68,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 
 	ctx := context.Background()
 	fmt.Fprintf(out, "acquiring CPython %s for %s/%s\n", py, goos, goarch)
-	rt, err := (&cpython.Client{}).Ensure(ctx, py, goos, goarch, true)
+	rt, err := (&cpython.Client{Token: githubToken()}).Ensure(ctx, py, goos, goarch, true)
 	if err != nil {
 		return err
 	}
@@ -141,6 +141,20 @@ func libraryPathVar(goos string) string {
 	default:
 		return "LD_LIBRARY_PATH"
 	}
+}
+
+// githubToken returns a GitHub token from the environment, if set, used to lift
+// the anonymous rate limit when resolving the CPython runtime release. gopack
+// works without one; setting it just avoids the 60-requests-per-hour anonymous
+// cap when building many bundles in a row. GOPACK_GITHUB_TOKEN takes precedence,
+// then the conventional GITHUB_TOKEN and GH_TOKEN.
+func githubToken() string {
+	for _, name := range []string{"GOPACK_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"} {
+		if t := os.Getenv(name); t != "" {
+			return t
+		}
+	}
+	return ""
 }
 
 var pyVersionRe = regexp.MustCompile(`(\d+\.\d+)`)

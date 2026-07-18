@@ -21,3 +21,15 @@ clients/*/build/
 
 # Local bundle scratch and cache
 /.gopack/
+
+# Benchmark workspace: built bundles, downloaded CPython runtimes, the installed
+# PyInstaller environment, and raw measurement logs. Heavy and reproducible, so
+# never committed. The runnable harness lives in examples/benchmark/ and IS
+# committed; only its work/ output is ignored.
+/benchmark/
+examples/benchmark/work/
+
+# Example run-time artifacts (created when an example is run directly)
+examples/**/db.sqlite3
+examples/**/artifacts/
+**/*.joblib

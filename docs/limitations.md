@@ -1,0 +1,90 @@
+# gopack Limitations
+
+gopack does one thing well: it turns a Python application and its pip-installed
+dependencies into a single executable that runs without a system Python. This
+document is an honest account of what it does not do yet, and the trade-offs
+that come with the approach. Knowing these up front saves surprises. Several of
+them are tracked as future work in the [roadmap](roadmap.md).
+
+## Bundle size
+
+Bundles are large today, roughly 256 to 340 MB for the example projects. The
+size comes from shipping a full CPython install, including the entire standard
+library, alongside the application's dependencies without pruning. The project
+blueprint targets tens of megabytes, and the path to get there is known (a
+stripped runtime and pruning of byte-code caches, tests, and unused files), but
+it is not implemented yet. Size does not change how a bundle is built or run.
+
+## First-run extraction
+
+On its first launch a bundle extracts its whole payload, the interpreter,
+dependencies, and application, to a content-addressed cache. For a large bundle
+that is hundreds of megabytes written to disk, so the first run takes a few
+seconds. Every later run reuses the extracted cache and starts quickly. The
+benchmark reports this as the cold versus warm startup difference. Environments
+that wipe the cache between runs pay the extraction cost each time.
+
+## Cache growth and a writable cache
+
+Each distinct bundle version extracts to its own directory under the cache
+(`$GOPACK_CACHE`, else `$XDG_CACHE_HOME/gopack`, else `~/.cache/gopack`). Old
+versions are not garbage collected automatically, so the cache grows as bundles
+are updated; clearing it is a manual `rm`. The launcher also needs a writable
+cache location: on a host with a read-only home directory, or a locked-down
+container, set `GOPACK_CACHE` to a writable path.
+
+## One target platform per build
+
+`gopack build` produces a bundle for the operating system and architecture of
+the build machine. Building a Linux bundle on a Mac, or an arm64 bundle on an
+amd64 host, is not supported yet. The design has a clear path to it (use the
+published gopack binary for the target platform as the runner), but today a
+bundle must be built on the platform it targets, or in a matching CI job.
+
+## Build-time network and the runtime source
+
+Building fetches a relocatable CPython from the python-build-standalone project
+on GitHub the first time, then caches it. So a build needs network access and is
+limited to the Python versions that project publishes. Building several bundles
+in a row resolves the release from the GitHub API each time, which can hit the
+anonymous rate limit; set `GITHUB_TOKEN` (or `GOPACK_GITHUB_TOKEN`) to lift it.
+Fully offline builds require a pre-populated runtime cache.
+
+## What gets bundled
+
+gopack bundles exactly what pip installs into the target, plus the application
+tree as it is on disk. That is a deliberate strength, but it sets the boundary:
+
+- Dependencies that are not pip-installable, or that expect OS-level packages,
+  services, or system configuration, are not handled beyond the native library
+  detection below.
+- Data files your application reads must live inside the application directory so
+  they are copied into the bundle. Files referenced by absolute paths outside the
+  project are not gathered.
+- The application must run from a single entry command. gopack runs one entry
+  script; it is not a multi-command launcher.
+
+## Native library detection
+
+C extensions sometimes load native libraries. gopack inspects the installed
+shared objects with the platform's linker tool (`ldd`, `otool`, or `dumpbin`),
+and embeds external libraries it finds. Modern manylinux, macOS, and Windows
+wheels vendor their own native libraries, so this usually finds nothing to add,
+which is correct. The detection covers libraries recorded in a shared object's
+load commands. A library a program opens at runtime with `dlopen` by an absolute
+system path, or through an unusual mechanism, is not something the static scan
+can see; on the target that library would need to be present, or added by hand.
+
+## No code signing
+
+gopack does not sign or notarize the executables it produces. An unsigned binary
+will trigger Gatekeeper warnings on macOS and SmartScreen prompts on Windows.
+Signing and notarization are left to your existing release tooling.
+
+## Platform coverage of this build
+
+The bundler is developed and its bundles are exercised on Linux. The macOS and
+Windows launchers cross-compile from the same design, and the manifest,
+extraction, and native library logic are platform-aware, but the end-to-end run
+of a bundle on those platforms is validated through CI rather than in the
+day-to-day development environment.

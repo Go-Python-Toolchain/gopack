@@ -1,0 +1,18 @@
+{% extends "notes/base.html" %}
+
+{% block title %}Notes ({{ stats.total }}){% endblock %}
+
+{% block content %}
+  <p class="summary">{{ stats.total }} notes, {{ stats.pinned }} pinned.</p>
+  <ul class="notes">
+    {% for note in notes %}
+      <li class="note {% if note.pinned %}pinned{% endif %}">
+        <span class="title">{{ note.title }}</span>
+        {% if note.pinned %}<span class="badge">pinned</span>{% endif %}
+        <p class="body">{{ note.body }}</p>
+      </li>
+    {% empty %}
+      <li class="empty">No notes yet. Run <code>seed</code> to add some.</li>
+    {% endfor %}
+  </ul>
+{% endblock %}
