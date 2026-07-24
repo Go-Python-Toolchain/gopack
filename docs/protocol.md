@@ -16,7 +16,7 @@ A finished bundle is a single file with three parts, in order:
 +-------------------------+  offset = len(runner)
 |   payload               |   a zip archive
 +-------------------------+  offset = len(runner) + len(payload)
-|   trailer (24 bytes)    |   magic + payload offset + payload length
+|   trailer (40 bytes)    |   magic + payload offset + length + content key
 +-------------------------+  end of file
 ```
 
@@ -28,21 +28,32 @@ end.
 
 ## The trailer
 
-The last 24 bytes of the file are a fixed trailer:
+The trailer records where the payload is and its content key. The current format
+is `GOPACK02`, 40 bytes:
 
 | Bytes | Field | Encoding |
 | --- | --- | --- |
-| 0 to 7 | magic | the ASCII string `GOPACK01` |
+| 0 to 7 | magic | the ASCII string `GOPACK02` |
 | 8 to 15 | payload offset | unsigned 64-bit, big-endian |
 | 16 to 23 | payload length | unsigned 64-bit, big-endian |
+| 24 to 39 | content key | 16 ASCII hex characters, the payload's key |
 
-The magic ends in a two-digit format version (`01`). A reader that does not
-recognize the version should refuse the file rather than guess.
+The content key is the first 16 hex characters of the payload's SHA-256, computed
+once when the bundle is built. It names the extraction cache directory, so the
+launcher reads it from the trailer instead of hashing the whole payload on every
+run.
 
-To detect a bundle, read the final 24 bytes, check the magic, and validate that
-`offset + length + 24` does not exceed the file size. If the file is shorter than
-24 bytes, or the magic does not match, or the bounds do not hold, the file has no
-gopack payload and gopack runs as the command line tool.
+The magic ends in a two-digit format version. The earlier `GOPACK01` format was
+the same without the content key, a 24-byte trailer; a reader still accepts it
+and recovers the key by hashing the payload, so bundles built before the key was
+recorded keep running. A reader that recognizes neither magic should refuse the
+file rather than guess.
+
+To detect a bundle, read the final 40 bytes and check for the `GOPACK02` magic at
+their start; if it is not there, check for `GOPACK01` in the final 24 bytes.
+Validate that `offset + length + trailer size` does not exceed the file size. If
+no magic matches or the bounds do not hold, the file has no gopack payload and
+gopack runs as the command line tool.
 
 ## The payload
 
@@ -110,7 +121,10 @@ On first run the launcher extracts the payload to a cache directory named by the
 payload's content, so two bundles with identical payloads share one extraction
 and a changed payload lands in a new directory.
 
-- The key is the first 16 hex characters of the SHA-256 of the payload bytes.
+- The key is the first 16 hex characters of the SHA-256 of the payload bytes. It
+  is recorded in the trailer at build time, so a warm run reads it directly; a
+  bundle in the older format without a recorded key has it recomputed from the
+  payload, which gives the same value.
 - The cache root is `$GOPACK_CACHE` if set, else `$XDG_CACHE_HOME/gopack` if set,
   else `~/.cache/gopack`. The extraction goes to `<cache root>/<key>`.
 - A marker file `.gopack-complete` is written after a successful extraction. Its
@@ -128,8 +142,9 @@ written.
 When a bundle runs, the launcher performs these steps:
 
 1. Find its own path.
-2. Open the trailer, locate the payload, and take its content hash.
-3. Compute the cache directory from the hash.
+2. Open the trailer, locate the payload, and read its content key (recomputing it
+   from the payload only for a bundle in the older format that did not record it).
+3. Compute the cache directory from the key.
 4. If the directory does not carry the completion marker, extract the payload
    into it and write the marker.
 5. Read and parse `gopack.json`. A manifest with no entry command is an error.
@@ -140,13 +155,16 @@ When a bundle runs, the launcher performs these steps:
 8. Wait for the command and exit with its exit code.
 
 Later runs skip extraction because the marker is present, so startup is the cost
-of hashing the payload, reading the manifest, and starting the interpreter.
+of reading the manifest and starting the interpreter. For a bundle that records
+its content key this no longer includes hashing the payload, which for a large
+bundle was most of a warm start.
 
 ## Building a compatible bundle
 
 A bundle can be produced without gopack by following the format: stage the
 `app`, `site-packages`, and `python` trees, write `gopack.json`, zip them with
 forward-slash paths, concatenate the zip onto a gopack binary for the target
-platform, and append the 24-byte trailer recording the zip's offset and length.
-gopack's own `build` command does exactly this, using a copy of the running
-gopack binary as the runner.
+platform, and append the 40-byte trailer recording the zip's offset, length, and
+content key (the first 16 hex characters of its SHA-256). gopack's own `build`
+command does exactly this, using a copy of the running gopack binary as the
+runner.

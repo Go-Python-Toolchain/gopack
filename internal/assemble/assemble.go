@@ -9,6 +9,8 @@ package assemble
 
 import (
 	"archive/zip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"io/fs"
@@ -34,7 +36,11 @@ func Assemble(runner []byte, manifest *bundle.Manifest, stagingDir, runtimeDir, 
 		return err
 	}
 
-	counter := &countWriter{w: out}
+	// Hash the payload as it is written, so the content key can be recorded in
+	// the trailer at build time. The launcher then reads the key from the trailer
+	// instead of rehashing the whole payload on every start.
+	hasher := sha256.New()
+	counter := &countWriter{w: io.MultiWriter(out, hasher)}
 	zw := zip.NewWriter(counter)
 
 	manifestJSON, err := json.MarshalIndent(manifest, "", "  ")
@@ -61,7 +67,8 @@ func Assemble(runner []byte, manifest *bundle.Manifest, stagingDir, runtimeDir, 
 		return err
 	}
 
-	trailer := bundle.MakeTrailer(uint64(len(runner)), uint64(counter.n))
+	key := hex.EncodeToString(hasher.Sum(nil))[:bundle.KeyLen]
+	trailer := bundle.MakeTrailer(uint64(len(runner)), uint64(counter.n), key)
 	if _, err := out.Write(trailer); err != nil {
 		return err
 	}

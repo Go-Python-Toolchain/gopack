@@ -170,3 +170,104 @@ func TestLauncherEndToEnd(t *testing.T) {
 		t.Fatalf("expected one cached bundle directory, found %v", entries)
 	}
 }
+
+// A v2 bundle records the payload's content key in its trailer, and that key
+// must be exactly what recomputing it from the payload gives, since the cache
+// directory is named after it. A build-time key that disagreed with the launch
+// recompute would scatter one bundle across two cache directories.
+func TestContentKeyRecordedMatchesRecomputed(t *testing.T) {
+	payload := bytes.Repeat([]byte("gopack payload bytes "), 5000)
+	image := Append([]byte("launcher"), payload)
+	path := filepath.Join(t.TempDir(), "v2.bin")
+	if err := os.WriteFile(path, image, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	if r.Key == "" {
+		t.Fatal("a v2 bundle should carry a content key")
+	}
+	if want := ContentKey(payload); r.Key != want {
+		t.Fatalf("trailer key %q != recomputed %q", r.Key, want)
+	}
+	got, err := r.key()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != r.Key {
+		t.Fatalf("key() returned %q, want the trailer key %q", got, r.Key)
+	}
+}
+
+// makeV1Bundle writes a bundle with the old trailer format, which carried no
+// content key, so the launcher's compatibility path can be tested.
+func makeV1Bundle(t *testing.T, launcher, payload []byte) string {
+	t.Helper()
+	const magicV1 = "GOPACK01"
+	tr := make([]byte, 24)
+	copy(tr[0:8], magicV1)
+	putUint64(tr[8:16], uint64(len(launcher)))
+	putUint64(tr[16:24], uint64(len(payload)))
+	image := append(append(append([]byte{}, launcher...), payload...), tr...)
+	path := filepath.Join(t.TempDir(), "v1.bin")
+	if err := os.WriteFile(path, image, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func putUint64(b []byte, v uint64) {
+	for i := 7; i >= 0; i-- {
+		b[i] = byte(v)
+		v >>= 8
+	}
+}
+
+// A bundle built by a version of gopack from before the key was recorded still
+// opens, and its key is recomputed from the payload rather than read from a
+// trailer that does not have one. This is what keeps old bundles runnable.
+func TestV1BundleStillOpensAndComputesItsKey(t *testing.T) {
+	launcher := []byte("old launcher")
+	payload := bytes.Repeat([]byte("legacy payload "), 3000)
+	path := makeV1Bundle(t, launcher, payload)
+
+	r, err := Open(path)
+	if err != nil {
+		t.Fatalf("a v1 bundle should still open: %v", err)
+	}
+	defer r.Close()
+
+	if r.Key != "" {
+		t.Errorf("a v1 bundle has no recorded key, got %q", r.Key)
+	}
+	if r.Size != int64(len(payload)) {
+		t.Fatalf("size = %d, want %d", r.Size, len(payload))
+	}
+	got, err := r.key()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := ContentKey(payload); got != want {
+		t.Fatalf("recomputed key %q != %q", got, want)
+	}
+	// A v1 and a v2 bundle of the same payload must resolve to the same cache,
+	// so upgrading gopack does not strand an already-extracted bundle.
+	v2 := Append(launcher, payload)
+	v2path := filepath.Join(t.TempDir(), "v2.bin")
+	if err := os.WriteFile(v2path, v2, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r2, err := Open(v2path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r2.Close()
+	if r2.Key != got {
+		t.Fatalf("v2 key %q != v1 recomputed key %q for the same payload", r2.Key, got)
+	}
+}

@@ -2,8 +2,6 @@ package bundle
 
 import (
 	"archive/zip"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -28,7 +26,7 @@ func Prepare(exePath string) (root string, m *Manifest, err error) {
 	}
 	defer r.Close()
 
-	key, err := payloadKey(r.Section)
+	key, err := r.key()
 	if err != nil {
 		return "", nil, err
 	}
@@ -52,18 +50,6 @@ func Prepare(exePath string) (root string, m *Manifest, err error) {
 		return "", nil, err
 	}
 	return root, m, nil
-}
-
-// payloadKey returns a short content hash of the payload.
-func payloadKey(section *io.SectionReader) (string, error) {
-	if _, err := section.Seek(0, io.SeekStart); err != nil {
-		return "", err
-	}
-	h := sha256.New()
-	if _, err := io.Copy(h, section); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil))[:16], nil
 }
 
 func cacheDir(key string) (string, error) {
