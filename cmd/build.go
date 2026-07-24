@@ -22,6 +22,7 @@ var buildOpts struct {
 	requirements string
 	output       string
 	noEmbed      bool
+	exclude      []string
 }
 
 var buildCmd = &cobra.Command{
@@ -90,6 +91,14 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}, staging)
 	if err != nil {
 		return err
+	}
+
+	if len(buildOpts.exclude) > 0 {
+		removed, freed, err := stage.Exclude(staging, buildOpts.exclude)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "excluded %d entrie(s), %.1f MB\n", removed, float64(freed)/(1024*1024))
 	}
 
 	report, err := nativelibs.Scan(filepath.Join(staging, "site-packages"))
@@ -182,5 +191,6 @@ func init() {
 	f.StringVarP(&buildOpts.requirements, "requirements", "r", "", "requirements file to install")
 	f.StringVarP(&buildOpts.output, "output", "o", "", "output path (default the app directory name)")
 	f.BoolVar(&buildOpts.noEmbed, "no-embed", false, "do not embed detected external native libraries")
+	f.StringArrayVar(&buildOpts.exclude, "exclude", nil, "glob of staged paths to leave out of the bundle (repeatable), for example --exclude tests --exclude '*.pyi'")
 	rootCmd.AddCommand(buildCmd)
 }

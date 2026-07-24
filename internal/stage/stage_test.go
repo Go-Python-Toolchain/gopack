@@ -156,3 +156,98 @@ func TestStageAndRunReal(t *testing.T) {
 	t.Logf("staged app output: %s", strings.TrimSpace(string(out)))
 	t.Logf("manifest entry: %v", m.Entry)
 }
+
+// stageTree writes a small tree of files under root for exclusion tests.
+func stageTree(t *testing.T, root string, files map[string]string) {
+	t.Helper()
+	for rel, content := range files {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func exists(root, rel string) bool {
+	_, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel)))
+	return err == nil
+}
+
+// A pattern with no slash matches an entry's base name at any depth. Excluding a
+// directory removes its whole subtree; excluding by extension removes matching
+// files wherever they are.
+func TestExcludeByBaseName(t *testing.T) {
+	root := t.TempDir()
+	stageTree(t, root, map[string]string{
+		"site-packages/pkg/__init__.py":     "x",
+		"site-packages/pkg/tests/test_a.py": "x",
+		"site-packages/pkg/core.pyi":        "x",
+		"site-packages/other/tests/t.py":    "x",
+		"app/main.py":                       "x",
+	})
+
+	removed, freed, err := Exclude(root, []string{"tests", "*.pyi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 3 { // two tests dirs and one .pyi
+		t.Fatalf("removed %d entries, want 3", removed)
+	}
+	if freed <= 0 {
+		t.Errorf("freed = %d, want > 0", freed)
+	}
+	if exists(root, "site-packages/pkg/tests") || exists(root, "site-packages/other/tests") {
+		t.Error("a tests directory survived exclusion")
+	}
+	if exists(root, "site-packages/pkg/core.pyi") {
+		t.Error("a .pyi file survived exclusion")
+	}
+	// What was not matched stays.
+	if !exists(root, "site-packages/pkg/__init__.py") || !exists(root, "app/main.py") {
+		t.Error("exclusion removed something it should not have")
+	}
+}
+
+// A pattern with a slash matches the full path relative to the staging root, so
+// it targets one specific location rather than a name anywhere.
+func TestExcludeByPath(t *testing.T) {
+	root := t.TempDir()
+	stageTree(t, root, map[string]string{
+		"site-packages/scipy/misc/x.py": "x",
+		"site-packages/numpy/misc/y.py": "x",
+	})
+
+	removed, _, err := Exclude(root, []string{"site-packages/scipy/misc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 1 {
+		t.Fatalf("removed %d, want 1", removed)
+	}
+	if exists(root, "site-packages/scipy/misc") {
+		t.Error("the targeted directory was not removed")
+	}
+	if !exists(root, "site-packages/numpy/misc") {
+		t.Error("a same-named directory elsewhere was wrongly removed")
+	}
+}
+
+// No patterns is a no-op, and an invalid pattern is reported rather than
+// silently matching nothing.
+func TestExcludeEdgeCases(t *testing.T) {
+	root := t.TempDir()
+	stageTree(t, root, map[string]string{"app/main.py": "x"})
+
+	if removed, _, err := Exclude(root, nil); err != nil || removed != 0 {
+		t.Fatalf("no patterns should be a no-op: removed=%d err=%v", removed, err)
+	}
+	if _, _, err := Exclude(root, []string{"["}); err == nil {
+		t.Error("an invalid glob should be reported")
+	}
+	if !exists(root, "app/main.py") {
+		t.Error("a failed exclude should not have removed anything")
+	}
+}

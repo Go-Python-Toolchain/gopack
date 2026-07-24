@@ -32,9 +32,11 @@ that wipe the cache between runs pay the extraction cost each time.
 Each distinct bundle version extracts to its own directory under the cache
 (`$GOPACK_CACHE`, else `$XDG_CACHE_HOME/gopack`, else `~/.cache/gopack`). Old
 versions are not garbage collected automatically, so the cache grows as bundles
-are updated; clearing it is a manual `rm`. The launcher also needs a writable
-cache location: on a host with a read-only home directory, or a locked-down
-container, set `GOPACK_CACHE` to a writable path.
+are updated. `gopack cache info` shows what is stored and `gopack cache clear`
+reclaims it, so this is a manual step rather than an `rm` on a path you have to
+work out. The launcher also needs a writable cache location: on a host with a
+read-only home directory, or a locked-down container, set `GOPACK_CACHE` to a
+writable path.
 
 ## One target platform per build
 

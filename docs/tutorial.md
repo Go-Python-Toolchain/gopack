@@ -71,12 +71,41 @@ ssh user@server ./myapp
 
 There is nothing else to install on the server.
 
+## 5. Leave things out
+
+A dependency often ships its own test suite, type stubs, or documentation that a
+running app does not need. `--exclude` drops them from the bundle:
+
+```
+gopack build ./myapp -r ./myapp/requirements.txt --exclude tests --exclude '*.pyi' -o myapp
+```
+
+A pattern without a slash matches a name anywhere in the tree, so `tests` removes
+every directory called tests. A pattern with a slash targets one path, such as
+`site-packages/scipy/misc`. The build prints how much each exclusion removed.
+
+## 6. Manage the cache
+
+gopack keeps two things between builds and runs: the CPython runtimes it
+downloads, and the bundles it extracts on first launch. See and reclaim that
+space with:
+
+```
+gopack cache info
+gopack cache clear          # remove extracted bundles, keep the downloaded runtimes
+gopack cache clear --all    # remove the runtimes too
+```
+
+The extracted bundles are regenerated the next time a bundle runs, so clearing
+them is safe; the runtimes are downloads, which is why they are kept unless you
+ask for `--all`.
+
 ## Notes on size
 
-Bundles are large today because the CPython runtime is the full install, which
-carries the whole standard library. A future option to use a stripped runtime and
-prune unused files will bring the size down. It does not change how you build or
-run a bundle.
+Bundles are tens to low hundreds of megabytes: most of a bundle is the CPython
+runtime and the dependencies pip installs. gopack ships the stripped runtime, so
+the size is mostly your dependencies. `--exclude` trims what a dependency carries
+but does not need. None of this changes how you build or run a bundle.
 
 ## Where to go next
 

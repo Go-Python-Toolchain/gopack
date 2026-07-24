@@ -45,7 +45,9 @@ gopack build ./myapp -r ./myapp/requirements.txt -o myapp
 
 gopack acquires a CPython runtime, installs the requirements, and writes a single
 executable. The entry script defaults to `main.py`; use `--entry` and `--python`
-to change the entry point or target version.
+to change the entry point or target version. `--exclude` leaves chosen paths out
+of the bundle, and `gopack cache` shows and clears what gopack has downloaded and
+extracted.
 
 In GitHub Actions, install gopack with the bundled action:
 

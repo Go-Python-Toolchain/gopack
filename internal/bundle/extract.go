@@ -52,20 +52,35 @@ func Prepare(exePath string) (root string, m *Manifest, err error) {
 	return root, m, nil
 }
 
-func cacheDir(key string) (string, error) {
-	base := os.Getenv("GOPACK_CACHE")
-	if base == "" {
-		if xdg := os.Getenv("XDG_CACHE_HOME"); xdg != "" {
-			base = filepath.Join(xdg, "gopack")
-		} else {
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return "", err
-			}
-			base = filepath.Join(home, ".cache", "gopack")
-		}
+// CacheRoot returns the base directory gopack caches into: `$GOPACK_CACHE` if
+// set, else `$XDG_CACHE_HOME/gopack`, else `~/.cache/gopack`. Downloaded runtimes
+// live in its `runtimes` subdirectory and extracted bundles in a directory named
+// by their content key, so this is the root for both caches.
+func CacheRoot() (string, error) {
+	if base := os.Getenv("GOPACK_CACHE"); base != "" {
+		return base, nil
 	}
-	return filepath.Join(base, key), nil
+	if xdg := os.Getenv("XDG_CACHE_HOME"); xdg != "" {
+		return filepath.Join(xdg, "gopack"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".cache", "gopack"), nil
+}
+
+// RuntimesSubdir is the name of the subdirectory under the cache root that holds
+// downloaded CPython runtimes. Everything else directly under the root is an
+// extracted bundle.
+const RuntimesSubdir = "runtimes"
+
+func cacheDir(key string) (string, error) {
+	root, err := CacheRoot()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, key), nil
 }
 
 func extracted(root string) bool {

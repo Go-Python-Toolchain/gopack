@@ -57,13 +57,14 @@ files depend only on the source, not on when or where the build ran.
 
 ## Trimming what goes in
 
-- A `--exclude` option to drop files and directories from the application tree,
-  for build artifacts and local scratch that should not ship.
-- Optional detection of installed dependencies the application never imports, so
-  they can be left out.
+`--exclude` is **done**. A build can drop staged files and directories by glob,
+so a project can leave out test suites, type stubs, documentation, or local
+scratch that a dependency ships. A pattern without a slash matches a base name
+anywhere in the tree, one with a slash matches a specific path, and the build
+reports how much was removed.
 
-Done when a project can shrink its bundle by excluding files it names, and unused
-dependencies can be reported.
+- Still open: optional detection of installed dependencies the application never
+  imports, so they can be left out automatically rather than named by hand.
 
 ## Signing and distribution
 
@@ -75,10 +76,10 @@ machine.
 
 ## Cache lifecycle
 
-- A `gopack cache` command to list extracted bundles and their sizes and to prune
-  old versions, so the run-time cache does not grow without bound.
-
-Done when a user can see and reclaim the space bundles use.
+**Done.** `gopack cache` shows where the caches are, lists the downloaded
+runtimes and extracted bundles with their sizes, and clears them. `cache clear`
+removes the extracted bundles, which are regenerated on the next run, and keeps
+the downloaded runtimes since each is a download; `--all` removes those too.
 
 ## Platform validation
 

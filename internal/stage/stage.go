@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/Go-Python-Toolchain/gopack/internal/bundle"
 )
@@ -122,6 +123,101 @@ func compile(pythonExe, target string) error {
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// Exclude removes staged files and directories matching any of the glob
+// patterns, and reports how many entries and how many bytes were removed. It is
+// how a build keeps chosen paths, such as test suites or documentation shipped
+// inside a dependency, out of a bundle.
+//
+// A pattern with no slash is matched against an entry's base name, so `tests`
+// removes any file or directory named tests at any depth and `*.pyi` removes
+// every stub file. A pattern with a slash is matched against the entry's path
+// relative to the staging root, so `site-packages/scipy/misc` removes exactly
+// that directory. Matching a directory removes the whole subtree.
+func Exclude(stagingDir string, patterns []string) (removed int, freed int64, err error) {
+	if len(patterns) == 0 {
+		return 0, 0, nil
+	}
+	for _, p := range patterns {
+		if _, err := filepath.Match(p, "probe"); err != nil {
+			return 0, 0, fmt.Errorf("invalid exclude pattern %q: %w", p, err)
+		}
+	}
+
+	err = filepath.WalkDir(stagingDir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == stagingDir {
+			return nil
+		}
+		rel, relErr := filepath.Rel(stagingDir, path)
+		if relErr != nil {
+			return relErr
+		}
+		if !excludeMatch(patterns, filepath.ToSlash(rel), d.Name()) {
+			return nil
+		}
+
+		size, sizeErr := entrySize(path, d)
+		if sizeErr != nil {
+			return sizeErr
+		}
+		if err := os.RemoveAll(path); err != nil {
+			return err
+		}
+		removed++
+		freed += size
+		if d.IsDir() {
+			return filepath.SkipDir
+		}
+		return nil
+	})
+	return removed, freed, err
+}
+
+// excludeMatch reports whether any pattern matches the entry. A pattern with a
+// slash is matched against the whole relative path; one without is matched
+// against the base name.
+func excludeMatch(patterns []string, rel, base string) bool {
+	for _, p := range patterns {
+		target := base
+		if strings.Contains(p, "/") {
+			target = rel
+		}
+		if ok, _ := filepath.Match(p, target); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// entrySize returns the size of a file, or the total size of a directory's
+// regular files.
+func entrySize(path string, d fs.DirEntry) (int64, error) {
+	if !d.IsDir() {
+		info, err := d.Info()
+		if err != nil {
+			return 0, err
+		}
+		return info.Size(), nil
+	}
+	var total int64
+	err := filepath.WalkDir(path, func(p string, e fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if e.Type().IsRegular() {
+			info, err := e.Info()
+			if err != nil {
+				return err
+			}
+			total += info.Size()
+		}
+		return nil
+	})
+	return total, err
 }
 
 // copyTree copies the file tree at src into dst, preserving file modes and
