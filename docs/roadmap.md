@@ -7,17 +7,22 @@ Items are grouped by the problem they solve, and each one is written so its
 
 ## Smaller bundles
 
-The biggest gap between gopack today and the blueprint's target is size: bundles
-are hundreds of megabytes when the goal is tens.
+Bundles were hundreds of megabytes because the runtime dominated them and most
+of the runtime was the interpreter's debug symbols. gopack now acquires the
+stripped CPython variant (`install_only_stripped`), which omits those symbols,
+and falls back to the full build for a platform that does not publish a stripped
+one. That alone cut the example bundles from 256 to 339 MB down to 82 to 164 MB,
+and none of them changed how they build or run.
 
-- Use the stripped CPython variant (`install_only_stripped`) instead of the full
-  install.
-- Prune byte-code caches (`__pycache__`), test directories, and other files that
-  are not needed at run time from the staged tree.
-- Optionally drop parts of the standard library the application does not import.
+What is left here is smaller. Pruning byte-code caches, test directories, and
+unused stdlib was the rest of the original plan; measured against the stripped
+runtime it is worth only a couple of megabytes, since the stripped build already
+excludes the test suites, and removing byte-code caches would trade a little size
+for a slower first run. So the remaining size work is:
 
-Done when the example bundles land in the tens-of-megabytes range without
-changing how they are built or run.
+- Optionally drop parts of the standard library, such as `tkinter`, that an
+  application provably does not import. This is the only pruning with enough
+  payoff to be worth the risk of removing something an app needs.
 
 ## Cross-platform builds
 

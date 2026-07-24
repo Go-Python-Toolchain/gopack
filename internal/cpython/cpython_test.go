@@ -44,20 +44,52 @@ func TestAssetMatching(t *testing.T) {
 	triple := "x86_64-unknown-linux-gnu"
 	re := assetRegexp(triple)
 
-	good := "cpython-3.12.8+20241206-x86_64-unknown-linux-gnu-install_only.tar.gz"
-	m := re.FindStringSubmatch(good)
-	if m == nil || m[1] != "3.12.8" {
-		t.Fatalf("expected to match and capture 3.12.8, got %v", m)
+	// Both the full and the stripped install_only builds match, and the variant
+	// is captured so the resolver can prefer the smaller one.
+	full := "cpython-3.12.8+20241206-x86_64-unknown-linux-gnu-install_only.tar.gz"
+	if m := re.FindStringSubmatch(full); m == nil || m[1] != "3.12.8" || m[2] != "" {
+		t.Fatalf("full build: expected version 3.12.8 and empty variant, got %v", m)
+	}
+	stripped := "cpython-3.12.8+20241206-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+	if m := re.FindStringSubmatch(stripped); m == nil || m[1] != "3.12.8" || m[2] != "_stripped" {
+		t.Fatalf("stripped build: expected version 3.12.8 and _stripped variant, got %v", m)
 	}
 
 	for _, bad := range []string{
-		"cpython-3.12.8+20241206-x86_64-apple-darwin-install_only.tar.gz",               // wrong triple
-		"cpython-3.12.8+20241206-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz", // stripped variant
-		"cpython-3.12.8+20241206-x86_64-unknown-linux-gnu-debug-full.tar.zst",           // wrong kind
+		"cpython-3.12.8+20241206-x86_64-apple-darwin-install_only.tar.gz",                // wrong triple
+		"cpython-3.12.8+20241206-x86_64-unknown-linux-gnu-debug-full.tar.zst",            // wrong kind
+		"cpython-3.12.8+20241206-x86_64-unknown-linux-gnu-install_only_stripped.tar.zst", // wrong extension
 	} {
 		if re.MatchString(bad) {
 			t.Errorf("should not match %q", bad)
 		}
+	}
+}
+
+// The stripped build is preferred at the same version, since it is a third of
+// the size, but a newer patch version wins over an older stripped one, because a
+// smaller bundle is not worth an older interpreter.
+func TestBetterAsset(t *testing.T) {
+	cases := []struct {
+		name         string
+		version      string
+		stripped     bool
+		bestVersion  string
+		bestStripped bool
+		want         bool
+	}{
+		{"stripped beats full at same version", "3.12.8", true, "3.12.8", false, true},
+		{"full does not beat stripped at same version", "3.12.8", false, "3.12.8", true, false},
+		{"newer full beats older stripped", "3.12.9", false, "3.12.8", true, true},
+		{"older stripped does not beat newer full", "3.12.8", true, "3.12.9", false, false},
+		{"same variant same version does not replace", "3.12.8", true, "3.12.8", true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := betterAsset(tc.version, tc.stripped, tc.bestVersion, tc.bestStripped); got != tc.want {
+				t.Errorf("betterAsset = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 

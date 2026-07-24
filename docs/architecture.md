@@ -65,3 +65,8 @@ gopack downloads a relocatable CPython build from the python-build-standalone
 project for the requested version and platform, and caches it. The install is
 relocatable, so it runs correctly from the extraction cache without a system
 Python.
+
+It prefers the stripped variant of that build (`install_only_stripped`), which
+omits the interpreter's debug symbols. Those symbols were most of a bundle's
+size, so preferring the stripped build roughly halves it, and a platform that
+does not publish a stripped build falls back to the full one.

@@ -135,8 +135,11 @@ func (c *Client) get(ctx context.Context, url string, accept string) ([]byte, er
 	return body, nil
 }
 
-// resolveAsset finds the newest install_only asset for the version prefix and
-// triple in the latest python-build-standalone release.
+// resolveAsset finds the best install_only asset for the version prefix and
+// triple in the latest python-build-standalone release. It prefers the stripped
+// variant, which omits the interpreter's debug symbols and is roughly a third of
+// the size, and falls back to the full install_only build for a platform that
+// does not publish a stripped one.
 func (c *Client) resolveAsset(ctx context.Context, versionPrefix, triple string) (name, url, fullVersion string, err error) {
 	body, err := c.get(ctx, "https://api.github.com/repos/"+pbsRepo+"/releases/latest", "application/vnd.github+json")
 	if err != nil {
@@ -153,24 +156,44 @@ func (c *Client) resolveAsset(ctx context.Context, versionPrefix, triple string)
 	}
 
 	re := assetRegexp(triple)
-	best := ""
+	bestVersion := ""
+	bestStripped := false
 	for _, a := range assets {
 		m := re.FindStringSubmatch(a.Name)
 		if m == nil {
 			continue
 		}
-		full := m[1]
+		full, stripped := m[1], m[2] == "_stripped"
 		if !versionMatchesPrefix(full, versionPrefix) {
 			continue
 		}
-		if best == "" || compareVersions(full, best) > 0 {
-			best, name, url, fullVersion = full, a.Name, a.URL, full
+		// A newer patch version always wins; the stripped build is a size
+		// optimization, not worth downgrading Python for. At the same version the
+		// stripped build wins, which is the common case since a release publishes
+		// both.
+		if name == "" || betterAsset(full, stripped, bestVersion, bestStripped) {
+			bestVersion, bestStripped = full, stripped
+			name, url, fullVersion = a.Name, a.URL, full
 		}
 	}
 	if name == "" {
 		return "", "", "", fmt.Errorf("no CPython %s build for %s in release %s", versionPrefix, triple, rel.TagName)
 	}
 	return name, url, fullVersion, nil
+}
+
+// betterAsset reports whether a candidate (version, stripped) should replace the
+// current best. A higher version always wins; at an equal version the stripped
+// build wins.
+func betterAsset(version string, stripped bool, bestVersion string, bestStripped bool) bool {
+	switch cmp := compareVersions(version, bestVersion); {
+	case cmp > 0:
+		return true
+	case cmp < 0:
+		return false
+	default:
+		return stripped && !bestStripped
+	}
 }
 
 func (c *Client) listAssets(ctx context.Context, assetsURL string) ([]ghAsset, error) {
@@ -193,8 +216,11 @@ func (c *Client) listAssets(ctx context.Context, assetsURL string) ([]ghAsset, e
 	return all, nil
 }
 
+// assetRegexp matches a python-build-standalone asset for the triple, capturing
+// the version in group 1 and the variant suffix in group 2, which is empty for
+// the full install_only build and "_stripped" for the stripped one.
 func assetRegexp(triple string) *regexp.Regexp {
-	return regexp.MustCompile(`^cpython-(\d+\.\d+\.\d+)\+\d+-` + regexp.QuoteMeta(triple) + `-install_only\.tar\.gz$`)
+	return regexp.MustCompile(`^cpython-(\d+\.\d+\.\d+)\+\d+-` + regexp.QuoteMeta(triple) + `-install_only(_stripped)?\.tar\.gz$`)
 }
 
 func versionMatchesPrefix(full, prefix string) bool {

@@ -8,19 +8,22 @@ them are tracked as future work in the [roadmap](roadmap.md).
 
 ## Bundle size
 
-Bundles are large today, roughly 256 to 340 MB for the example projects. The
-size comes from shipping a full CPython install, including the entire standard
-library, alongside the application's dependencies without pruning. The project
-blueprint targets tens of megabytes, and the path to get there is known (a
-stripped runtime and pruning of byte-code caches, tests, and unused files), but
-it is not implemented yet. Size does not change how a bundle is built or run.
+Bundles are tens to low hundreds of megabytes, roughly 82 to 164 MB for the
+example projects. Almost all of it is the CPython runtime and the application's
+pip-installed dependencies; gopack ships the standard library whole rather than
+tracing which modules the application imports. It uses the stripped CPython
+build, which omits the interpreter's debug symbols and was the bulk of the old
+size (bundles were 256 to 340 MB before). Trimming further, by dropping stdlib
+packages an application provably does not use, is possible but has a smaller
+payoff and the risk of removing something the app needs. Size does not change how
+a bundle is built or run.
 
 ## First-run extraction
 
 On its first launch a bundle extracts its whole payload, the interpreter,
-dependencies, and application, to a content-addressed cache. For a large bundle
-that is hundreds of megabytes written to disk, so the first run takes a few
-seconds. Every later run reuses the extracted cache and starts quickly. The
+dependencies, and application, to a content-addressed cache. That is tens to
+low hundreds of megabytes written to disk, so the first run takes longer than
+later ones. Every later run reuses the extracted cache and starts quickly. The
 benchmark reports this as the cold versus warm startup difference. Environments
 that wipe the cache between runs pay the extraction cost each time.
 
