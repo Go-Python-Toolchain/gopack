@@ -49,6 +49,9 @@ func Build(opts Options, stagingDir string) (*bundle.Manifest, error) {
 		if err := pipInstall(opts.PythonExe, site, opts.Requirements, opts.RequirementsFile); err != nil {
 			return nil, fmt.Errorf("installing dependencies: %w", err)
 		}
+		if err := compile(opts.PythonExe, site); err != nil {
+			return nil, fmt.Errorf("byte-compiling dependencies: %w", err)
+		}
 	}
 
 	manifest := &bundle.Manifest{
@@ -68,13 +71,34 @@ func pythonRel(goos string) string {
 }
 
 // PipInstallArgs builds the pip command used to install into a target directory.
+// It passes --no-compile so pip does not write byte-code caches; those are
+// created afterwards, deterministically, by CompileArgs. pip's own compilation
+// stamps each .pyc with the source file's modification time, which differs
+// between builds and would make bundles non-reproducible.
 func PipInstallArgs(target string, reqs []string, reqFile string) []string {
-	args := []string{"-m", "pip", "install", "--target", target, "--disable-pip-version-check", "--no-input"}
+	args := []string{"-m", "pip", "install", "--target", target, "--no-compile", "--disable-pip-version-check", "--no-input"}
 	if reqFile != "" {
 		args = append(args, "-r", reqFile)
 	}
 	args = append(args, reqs...)
 	return args
+}
+
+// CompileArgs builds the command that byte-compiles a directory reproducibly.
+// Two choices make the output identical across builds. Hash-based invalidation
+// (PEP 552) records a hash of the source rather than its modification time, so
+// the .pyc does not depend on when the file was written. Stripping the target
+// path makes the source path recorded inside each .pyc relative, so it does not
+// depend on the build's temporary directory.
+func CompileArgs(target string) []string {
+	return []string{
+		"-m", "compileall",
+		"-q",                                    // quiet
+		"-f",                                    // rewrite existing caches
+		"--invalidation-mode", "unchecked-hash", // hash-based, not timestamp-based
+		"-s", target, // strip this prefix from recorded source paths
+		target,
+	}
 }
 
 func pipInstall(pythonExe, target string, reqs []string, reqFile string) error {
@@ -83,6 +107,19 @@ func pipInstall(pythonExe, target string, reqs []string, reqFile string) error {
 	}
 	cmd := exec.Command(pythonExe, PipInstallArgs(target, reqs, reqFile)...)
 	cmd.Stdout = os.Stderr // pip progress goes to stderr so command stdout stays clean
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// compile byte-compiles the installed dependencies so a bundle carries ready
+// .pyc files, generated deterministically so two builds of the same inputs
+// produce identical bundles.
+func compile(pythonExe, target string) error {
+	if pythonExe == "" {
+		return fmt.Errorf("no interpreter available to byte-compile")
+	}
+	cmd := exec.Command(pythonExe, CompileArgs(target)...)
+	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }

@@ -54,3 +54,12 @@ release publishes is refused before anything is extracted. A guarded network tes
 downloads and verifies a runtime, and a second build with that runtime cached
 makes zero HTTP requests, which is what lets a repeat build skip the API rate
 limit and an offline build work at all.
+
+## Reproducible builds
+
+Building the same application twice, into two different temporary directories,
+produces byte-identical bundles. The check is `TestReproducibleBundleReal`,
+guarded by `GOPACK_NETWORK_TESTS=1` because it installs a real dependency: the
+one step that was not deterministic was byte-compilation, so it has to run
+against real installed packages to be meaningful. The two builds are compared
+byte for byte, and the test names the first differing offset if they diverge.

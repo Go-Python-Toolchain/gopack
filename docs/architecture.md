@@ -42,6 +42,13 @@ that records where the payload begins and how long it is. The zip contains:
 - `python`, a relocatable CPython runtime.
 - `libs`, any external native libraries that were detected and embedded.
 
+The build is reproducible: staging the same inputs twice produces byte-identical
+bundles. The zip is written with a fixed entry order, timestamps, and modes, and
+dependencies are byte-compiled with hash-based invalidation and a stripped source
+path, so the `.pyc` files depend only on the source and not on when or where the
+build ran. pip is told not to compile, because its own `.pyc` files record the
+source modification time and would differ between builds.
+
 ## Running a bundle
 
 On first run the launcher reads its own file, finds the payload through the

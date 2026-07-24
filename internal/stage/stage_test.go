@@ -25,6 +25,33 @@ func TestPipInstallArgs(t *testing.T) {
 	if !strings.HasSuffix(joined, "six") {
 		t.Fatalf("missing requirement: %q", joined)
 	}
+	// pip must not byte-compile: it stamps each .pyc with the source mtime, which
+	// would make bundles non-reproducible. Compilation is done separately.
+	if !strings.Contains(joined, "--no-compile") {
+		t.Fatalf("pip should be told not to compile: %q", joined)
+	}
+}
+
+// The byte-compile step has to be deterministic, or bundles would differ between
+// builds. Both properties that make it so are checked here.
+func TestCompileArgs(t *testing.T) {
+	got := CompileArgs("/stage/site-packages")
+	joined := strings.Join(got, " ")
+	if !strings.Contains(joined, "-m compileall") {
+		t.Fatalf("not a compileall command: %q", joined)
+	}
+	// Hash-based invalidation records a source hash, not a modification time.
+	if !strings.Contains(joined, "--invalidation-mode unchecked-hash") {
+		t.Fatalf("must use hash-based invalidation: %q", joined)
+	}
+	// Stripping the target makes the source path recorded in each .pyc relative,
+	// so it does not carry the build's temporary directory.
+	if !strings.Contains(joined, "-s /stage/site-packages") {
+		t.Fatalf("must strip the target path: %q", joined)
+	}
+	if !strings.HasSuffix(joined, "/stage/site-packages") {
+		t.Fatalf("must compile the target directory: %q", joined)
+	}
 }
 
 func TestPythonRel(t *testing.T) {

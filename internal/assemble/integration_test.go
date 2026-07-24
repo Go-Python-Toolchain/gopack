@@ -1,6 +1,7 @@
 package assemble
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
@@ -98,4 +99,82 @@ func TestFullBundleReal(t *testing.T) {
 		}
 	}
 	t.Logf("bundle output with no system Python:\n%s", strings.TrimSpace(got))
+}
+
+// TestReproducibleBundleReal builds the same application twice, staging it into
+// two different temporary directories, and requires the two finished bundles to
+// be byte-identical. Byte-compilation is the one step that was not deterministic,
+// so a real dependency is installed and compiled to exercise it. Skipped unless
+// GOPACK_NETWORK_TESTS=1.
+func TestReproducibleBundleReal(t *testing.T) {
+	if os.Getenv("GOPACK_NETWORK_TESTS") == "" {
+		t.Skip("set GOPACK_NETWORK_TESTS=1 to run tests that download CPython and install packages")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	defer cancel()
+
+	sharedCache := t.TempDir()
+	rt, err := (&cpython.Client{CacheDir: sharedCache, Token: os.Getenv("GITHUB_TOKEN")}).
+		Ensure(ctx, "3.12", runtime.GOOS, runtime.GOARCH, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	appDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(appDir, "main.py"), []byte("import six\nprint(six.__version__)\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	launcherPath := filepath.Join(t.TempDir(), "launcher")
+	build := exec.Command("go", "build", "-o", launcherPath, "github.com/Go-Python-Toolchain/gopack")
+	build.Env = append(os.Environ(), "GOTOOLCHAIN=local")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("building gopack: %v\n%s", err, out)
+	}
+	launcher, err := os.ReadFile(launcherPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// buildOnce stages into a fresh directory and assembles a bundle, returning
+	// its bytes. Two calls differ only in the temporary paths involved, which is
+	// exactly what must not leak into the output.
+	buildOnce := func() []byte {
+		staging := t.TempDir()
+		manifest, err := stage.Build(stage.Options{
+			Name:         "demo",
+			AppDir:       appDir,
+			Entry:        "main.py",
+			Requirements: []string{"six"},
+			PythonExe:    rt.Exe,
+			TargetOS:     runtime.GOOS,
+		}, staging)
+		if err != nil {
+			t.Fatal(err)
+		}
+		outPath := filepath.Join(t.TempDir(), "app")
+		if err := Assemble(launcher, manifest, staging, rt.Dir, outPath); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(outPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+
+	first := buildOnce()
+	second := buildOnce()
+	if len(first) != len(second) {
+		t.Fatalf("bundle sizes differ: %d vs %d", len(first), len(second))
+	}
+	if !bytes.Equal(first, second) {
+		for i := range first {
+			if first[i] != second[i] {
+				t.Fatalf("bundles differ at byte %d of %d; the build is not reproducible", i, len(first))
+			}
+		}
+	}
+	t.Logf("two builds produced byte-identical %.1f MB bundles", float64(len(first))/(1024*1024))
 }

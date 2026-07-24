@@ -48,10 +48,12 @@ bundle.
 
 ## Reproducible output
 
-- Normalize file ordering and timestamps in the payload zip so that building the
-  same inputs twice yields byte-identical bundles.
-
-Done when two builds of an unchanged project produce identical checksums.
+**Done.** Two builds of the same inputs produce byte-identical bundles. The
+payload zip already used a fixed entry order, timestamps, and modes; the one
+remaining source of variation was byte-compilation, which stamped each `.pyc`
+with its source's modification time and absolute path. Dependencies are now
+compiled with hash-based invalidation and a stripped source path, so the `.pyc`
+files depend only on the source, not on when or where the build ran.
 
 ## Trimming what goes in
 
