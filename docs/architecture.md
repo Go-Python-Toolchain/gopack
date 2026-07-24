@@ -70,3 +70,10 @@ It prefers the stripped variant of that build (`install_only_stripped`), which
 omits the interpreter's debug symbols. Those symbols were most of a bundle's
 size, so preferring the stripped build roughly halves it, and a platform that
 does not publish a stripped build falls back to the full one.
+
+Acquisition looks in the cache before it contacts the index. An already-extracted
+runtime that matches the requested version and platform is used as-is, so a
+second build makes no network request and a build works offline once a runtime is
+cached. A newly downloaded runtime is checked against the digest the release
+publishes and refused on a mismatch, before it is extracted, so a corrupted or
+tampered interpreter never reaches a bundle.

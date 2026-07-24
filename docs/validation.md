@@ -42,9 +42,15 @@ by the GOPACK_NETWORK_TESTS environment variable so the normal test run stays
 offline; it downloads CPython and several large packages and writes a few hundred
 megabytes per bundle.
 
-## Known follow-up
+## Runtime acquisition
 
-Bundles are currently around 260 to 290 MB because the CPython runtime is the full
-install, which carries the entire standard library. Using the stripped runtime
-variant and pruning byte-code caches and test directories would bring bundles much
-closer to the tens of megabytes range, without changing how they are built or run.
+Two properties of how gopack acquires its runtime are checked without a network,
+using fake cache directories and a local server. A build finds an
+already-extracted runtime in the cache and uses it, preferring the newest version
+and the stripped variant, and ignores a half-finished extraction that lacks its
+completion marker. A downloaded runtime whose bytes do not match the digest the
+release publishes is refused before anything is extracted. A guarded network test
+(`GOPACK_NETWORK_TESTS=1`) confirms the end to end behavior: the first build
+downloads and verifies a runtime, and a second build with that runtime cached
+makes zero HTTP requests, which is what lets a repeat build skip the API rate
+limit and an offline build work at all.

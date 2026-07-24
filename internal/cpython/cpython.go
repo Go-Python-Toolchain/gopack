@@ -9,6 +9,8 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -102,6 +104,9 @@ func (c *Client) cacheRoot() (string, error) {
 type ghAsset struct {
 	Name string `json:"name"`
 	URL  string `json:"browser_download_url"`
+	// Digest is the asset's content digest as the index publishes it, for
+	// example "sha256:abcd...". Empty on older releases that predate the field.
+	Digest string `json:"digest"`
 }
 
 type ghRelease struct {
@@ -140,24 +145,25 @@ func (c *Client) get(ctx context.Context, url string, accept string) ([]byte, er
 // variant, which omits the interpreter's debug symbols and is roughly a third of
 // the size, and falls back to the full install_only build for a platform that
 // does not publish a stripped one.
-func (c *Client) resolveAsset(ctx context.Context, versionPrefix, triple string) (name, url, fullVersion string, err error) {
+func (c *Client) resolveAsset(ctx context.Context, versionPrefix, triple string) (asset ghAsset, fullVersion string, err error) {
 	body, err := c.get(ctx, "https://api.github.com/repos/"+pbsRepo+"/releases/latest", "application/vnd.github+json")
 	if err != nil {
-		return "", "", "", err
+		return ghAsset{}, "", err
 	}
 	var rel ghRelease
 	if err := json.Unmarshal(body, &rel); err != nil {
-		return "", "", "", err
+		return ghAsset{}, "", err
 	}
 
 	assets, err := c.listAssets(ctx, rel.AssetsURL)
 	if err != nil {
-		return "", "", "", err
+		return ghAsset{}, "", err
 	}
 
 	re := assetRegexp(triple)
 	bestVersion := ""
 	bestStripped := false
+	found := false
 	for _, a := range assets {
 		m := re.FindStringSubmatch(a.Name)
 		if m == nil {
@@ -171,15 +177,68 @@ func (c *Client) resolveAsset(ctx context.Context, versionPrefix, triple string)
 		// optimization, not worth downgrading Python for. At the same version the
 		// stripped build wins, which is the common case since a release publishes
 		// both.
-		if name == "" || betterAsset(full, stripped, bestVersion, bestStripped) {
+		if !found || betterAsset(full, stripped, bestVersion, bestStripped) {
 			bestVersion, bestStripped = full, stripped
-			name, url, fullVersion = a.Name, a.URL, full
+			asset, fullVersion, found = a, full, true
 		}
 	}
-	if name == "" {
-		return "", "", "", fmt.Errorf("no CPython %s build for %s in release %s", versionPrefix, triple, rel.TagName)
+	if !found {
+		return ghAsset{}, "", fmt.Errorf("no CPython %s build for %s in release %s", versionPrefix, triple, rel.TagName)
 	}
-	return name, url, fullVersion, nil
+	return asset, fullVersion, nil
+}
+
+// dirRegexp matches an extracted runtime's cache directory name, which is an
+// asset name without the .tar.gz suffix, capturing the version and variant the
+// same way assetRegexp does.
+func dirRegexp(triple string) *regexp.Regexp {
+	return regexp.MustCompile(`^cpython-(\d+\.\d+\.\d+)\+\d+-` + regexp.QuoteMeta(triple) + `-install_only(_stripped)?$`)
+}
+
+// findCached returns an already-extracted runtime that matches the version
+// prefix and triple, if one is cached. It is what lets a build with a warm cache
+// make no network request at all, and what makes an offline build possible once
+// a runtime has been acquired. It prefers the same build resolveAsset would: the
+// newest version, and the stripped variant at an equal version.
+func (c *Client) findCached(versionPrefix, goos, triple string) (*Runtime, bool) {
+	root, err := c.cacheRoot()
+	if err != nil {
+		return nil, false
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil, false
+	}
+
+	re := dirRegexp(triple)
+	var best *Runtime
+	bestVersion := ""
+	bestStripped := false
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		m := re.FindStringSubmatch(e.Name())
+		if m == nil {
+			continue
+		}
+		full, stripped := m[1], m[2] == "_stripped"
+		if !versionMatchesPrefix(full, versionPrefix) {
+			continue
+		}
+		dir := filepath.Join(root, e.Name())
+		if !isComplete(dir) {
+			continue
+		}
+		if best == nil || betterAsset(full, stripped, bestVersion, bestStripped) {
+			bestVersion, bestStripped = full, stripped
+			best = &Runtime{Dir: dir, Exe: PythonExe(dir, goos), FullVersion: full, Triple: triple}
+		}
+	}
+	if best == nil {
+		return nil, false
+	}
+	return best, true
 }
 
 // betterAsset reports whether a candidate (version, stripped) should replace the
@@ -242,16 +301,31 @@ func compareVersions(a, b string) int {
 	return len(as) - len(bs)
 }
 
-// Ensure downloads and extracts the CPython runtime for the version, os, and
-// arch, caching it. When verify is true it runs the interpreter to confirm the
-// build works, which is only possible when building for the host platform.
+// Ensure returns the CPython runtime for the version, os, and arch, downloading
+// and extracting it if it is not already cached. When verify is true it runs the
+// interpreter to confirm the build works, which is only possible when building
+// for the host platform.
+//
+// A cached runtime is used without contacting the index, so repeated builds make
+// no network request and a build works offline once a runtime has been acquired.
+// A freshly downloaded runtime is checked against the digest the index publishes
+// before it is extracted, so a corrupted or tampered download is refused.
 func (c *Client) Ensure(ctx context.Context, version, goos, goarch string, verify bool) (*Runtime, error) {
 	triple, err := TripleFor(goos, goarch)
 	if err != nil {
 		return nil, err
 	}
 
-	name, url, full, err := c.resolveAsset(ctx, version, triple)
+	if rt, ok := c.findCached(version, goos, triple); ok {
+		if verify {
+			if err := verifyInterpreter(rt.Exe, rt.FullVersion); err != nil {
+				return nil, err
+			}
+		}
+		return rt, nil
+	}
+
+	asset, full, err := c.resolveAsset(ctx, version, triple)
 	if err != nil {
 		return nil, err
 	}
@@ -260,11 +334,11 @@ func (c *Client) Ensure(ctx context.Context, version, goos, goarch string, verif
 	if err != nil {
 		return nil, err
 	}
-	dir := filepath.Join(root, strings.TrimSuffix(name, ".tar.gz"))
+	dir := filepath.Join(root, strings.TrimSuffix(asset.Name, ".tar.gz"))
 	rt := &Runtime{Dir: dir, Exe: PythonExe(dir, goos), FullVersion: full, Triple: triple}
 
 	if !isComplete(dir) {
-		if err := c.downloadAndExtract(ctx, url, dir); err != nil {
+		if err := c.downloadAndExtract(ctx, asset.URL, asset.Digest, dir); err != nil {
 			return nil, err
 		}
 		if err := os.WriteFile(filepath.Join(dir, ".gopack-complete"), nil, 0o644); err != nil {
@@ -285,7 +359,7 @@ func isComplete(dir string) bool {
 	return err == nil
 }
 
-func (c *Client) downloadAndExtract(ctx context.Context, url, dir string) error {
+func (c *Client) downloadAndExtract(ctx context.Context, url, digest, dir string) error {
 	tmp, err := os.CreateTemp("", "gopack-cpython-*.tar.gz")
 	if err != nil {
 		return err
@@ -307,10 +381,16 @@ func (c *Client) downloadAndExtract(ctx context.Context, url, dir string) error 
 		tmp.Close()
 		return fmt.Errorf("downloading runtime: status %d", resp.StatusCode)
 	}
-	_, err = io.Copy(tmp, resp.Body)
+	// Hash the download as it is written, so the interpreter can be checked
+	// against the digest the index published before anything is extracted.
+	hasher := sha256.New()
+	_, err = io.Copy(tmp, io.TeeReader(resp.Body, hasher))
 	resp.Body.Close()
 	tmp.Close()
 	if err != nil {
+		return err
+	}
+	if err := verifyDigest(digest, hasher.Sum(nil)); err != nil {
 		return err
 	}
 
@@ -318,6 +398,24 @@ func (c *Client) downloadAndExtract(ctx context.Context, url, dir string) error 
 		return err
 	}
 	return extractTarGz(tmp.Name(), dir)
+}
+
+// verifyDigest checks a downloaded runtime against the digest the index
+// published. A mismatch is refused. A digest gopack cannot check, because the
+// release predates the field or uses an algorithm gopack does not implement, is
+// not treated as a failure: there is nothing to check against, and refusing
+// every such build would be worse than the status quo. Only sha256 is verified,
+// which is what python-build-standalone publishes.
+func verifyDigest(digest string, sum []byte) error {
+	algo, want, ok := strings.Cut(digest, ":")
+	if !ok || algo != "sha256" {
+		return nil
+	}
+	got := hex.EncodeToString(sum)
+	if !strings.EqualFold(got, want) {
+		return fmt.Errorf("runtime digest mismatch: the index published sha256:%s but the download hashed to sha256:%s; refusing it", want, got)
+	}
+	return nil
 }
 
 func verifyInterpreter(exe, full string) error {

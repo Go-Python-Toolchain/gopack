@@ -39,12 +39,12 @@ host can build an arm64 bundle.
 
 ## Faster, more reliable builds
 
-- Skip the GitHub release lookup when the requested runtime is already in the
-  cache, so repeat builds do not touch the network or the API rate limit at all.
-- Support a fully offline build against a pre-populated runtime cache, with a
-  clear error when the runtime is missing rather than a network failure.
-
-Done when a second build of the same project makes no network requests.
+**Done.** A build now looks in the runtime cache before contacting GitHub, so a
+second build of any project makes no network request and does not touch the API
+rate limit, and a build works fully offline once a runtime has been acquired. A
+freshly downloaded runtime is checked against the digest the release publishes
+and refused on a mismatch, so a corrupted or tampered interpreter never reaches a
+bundle.
 
 ## Reproducible output
 

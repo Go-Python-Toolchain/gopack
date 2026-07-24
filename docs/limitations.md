@@ -47,11 +47,15 @@ bundle must be built on the platform it targets, or in a matching CI job.
 ## Build-time network and the runtime source
 
 Building fetches a relocatable CPython from the python-build-standalone project
-on GitHub the first time, then caches it. So a build needs network access and is
-limited to the Python versions that project publishes. Building several bundles
-in a row resolves the release from the GitHub API each time, which can hit the
-anonymous rate limit; set `GITHUB_TOKEN` (or `GOPACK_GITHUB_TOKEN`) to lift it.
-Fully offline builds require a pre-populated runtime cache.
+on GitHub the first time, then caches it. So the first build of a given runtime
+needs network access and is limited to the Python versions that project
+publishes. Later builds use the cached runtime and make no network request, so
+they neither wait on GitHub nor count against its rate limit, and a build works
+fully offline once the runtime is cached. The downloaded runtime is verified
+against the digest the release publishes before it is used. A first build on a
+fresh machine still benefits from a token if you are building many different
+runtimes at once: set `GITHUB_TOKEN` (or `GOPACK_GITHUB_TOKEN`) to lift the
+anonymous rate limit.
 
 ## What gets bundled
 
