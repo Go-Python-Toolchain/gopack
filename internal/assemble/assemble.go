@@ -3,8 +3,9 @@
 // appends that zip to a copy of the gopack binary, and writes the result as a
 // single executable. gopack acts as the launcher when it carries a payload, so
 // the finished bundle is just gopack plus the appended payload; there is no
-// separate launcher program. The zip is streamed straight to the output file so
-// large bundles do not have to be held in memory.
+// separate launcher program. Each staged file is copied into the zip as a
+// stream, and the zip is written straight to the output file, so assembling a
+// large bundle never holds more than one buffer's worth of a file in memory.
 package assemble
 
 import (
@@ -105,12 +106,26 @@ func addTree(zw *zip.Writer, srcDir, prefix string) error {
 			return nil // directories are implied by their entries
 		}
 
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		return addBytes(zw, name, data, info.Mode())
+		return addFile(zw, name, path, info.Mode())
 	})
+}
+
+// addFile copies a file into the zip as a stream, so a large file, such as the
+// interpreter's shared library, is never read into memory all at once.
+func addFile(zw *zip.Writer, name, srcPath string, mode fs.FileMode) error {
+	header := &zip.FileHeader{Name: name, Method: zip.Deflate}
+	header.SetMode(mode)
+	w, err := zw.CreateHeader(header)
+	if err != nil {
+		return err
+	}
+	f, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = io.Copy(w, f)
+	return err
 }
 
 func addBytes(zw *zip.Writer, name string, data []byte, mode fs.FileMode) error {

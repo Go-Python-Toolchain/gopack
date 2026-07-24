@@ -24,7 +24,7 @@ bash "$here/gopack_build.sh"
 
 # The PyInstaller comparison is optional: skip it cleanly if PyInstaller is not
 # installed, so a gopack-only run still produces results.
-if "$here/../work/tools/pyi-venv/bin/python" -c "import PyInstaller" 2>/dev/null \
+if "$TOOLS_DIR/pyi-venv/bin/python" -c "import PyInstaller" 2>/dev/null \
    || "$TOOLS_DIR/smoke-venv/bin/python" -c "import PyInstaller" 2>/dev/null; then
   bash "$here/pyinstaller_build.sh" || echo "pyinstaller stage reported errors; continuing" >&2
 else
